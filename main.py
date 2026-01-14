@@ -1,4 +1,5 @@
 import os
+import sys
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -24,43 +25,52 @@ def main():
 
     #add prompt to list of running messages
     messages = [types.Content(role="user", parts=[types.Part(text=args.prompt)])]
-    
-    #generate response from gemini
-    response = client.models.generate_content(
-        model='gemini-2.5-flash', 
-        contents=messages,
-        config=types.GenerateContentConfig(
-            tools=[available_functions], system_instruction=system_prompt)
-    )
 
-    if(response.usage_metadata is None):
-        raise RuntimeError("metadata for this prompt could not be found")
+    for _ in range(20):
+        #generate response from gemini
+        response = client.models.generate_content(
+            model='gemini-2.5-flash', 
+            contents=messages,
+            config=types.GenerateContentConfig(
+                tools=[available_functions], system_instruction=system_prompt)
+        )
 
-    #print metadata if verbose flag used
-    if(args.verbose == True):
-        print(f"User prompt: {args.prompt}")
-        print(f"Prompt tokens: {response.usage_metadata.prompt_token_count}")
-        print(f"Response tokens: {response.usage_metadata.candidates_token_count}")
+        if response.candidates:
+            for each in response.candidates:
+                messages.append(each.content)
 
-    function_responses =[]
+        if(response.usage_metadata is None):
+            raise RuntimeError("metadata for this prompt could not be found")
 
-    #print function calls or a response
-    if response.function_calls:
-        for call in response.function_calls:
-            function_call_result = call_function(call)
-            if function_call_result.parts is None:
-                raise Exception("parts metatdata is empty")
-            if function_call_result.parts[0].function_response is None:
-                raise Exception("function reponse is not a FunctionResponse object")
-            if function_call_result.parts[0].function_response.response is None:
-                raise Exception("response of result is None")
-            function_responses.append(function_call_result.parts[0])
-            if(args.verbose==True):
-                print(f"-> {function_call_result.parts[0].function_response.response}")
+        #print metadata if verbose flag used
+        if(args.verbose == True):
+            print(f"User prompt: {args.prompt}")
+            print(f"Prompt tokens: {response.usage_metadata.prompt_token_count}")
+            print(f"Response tokens: {response.usage_metadata.candidates_token_count}")
+
+        function_responses =[]
+
+        #print function calls or a response
+        if response.function_calls:
+            for call in response.function_calls:
+                function_call_result = call_function(call)
+                if function_call_result.parts is None:
+                    raise Exception("parts metatdata is empty")
+                if function_call_result.parts[0].function_response is None:
+                    raise Exception("function reponse is not a FunctionResponse object")
+                if function_call_result.parts[0].function_response.response is None:
+                    raise Exception("response of result is None")
+                function_responses.append(function_call_result.parts[0])
+                if(args.verbose==True):
+                    print(f"-> {function_call_result.parts[0].function_response.response}")
+        else:
+            print(f"Response:\n {response.text}")
+            break
+
+        messages.append(types.Content(role="user", parts=function_responses))
     else:
-        print(f"Response:\n {response.text}")
-
-    
-
+        print("The agent failed to produce a final answer within 20 iterations.")
+        sys.exit(1)
+        
 if __name__ == "__main__":
     main()
